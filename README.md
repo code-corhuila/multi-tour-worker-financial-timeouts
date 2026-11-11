@@ -7,9 +7,11 @@ Governance and documentation live in [`multi-tour-docs`](https://github.com/code
 
 ## What it is
 
-Job 2 of ADR-004 D3 (HU-WRK-002): it applies the financial timeouts of `commercial-reservation` by asking it through its internal routes: the default 100 %
-refund decision after 24 running hours, the overdue mark of a refund not executed in 5 business days and the alert of a proof not reviewed in 24 hours. It has
-no database and exposes only `/health`. This piece is the skeleton: module, common files, CI, configuration and health.
+Job 2 of ADR-004 D3 (HU-WRK-002). Every 5 minutes, for each tenant it sweeps, it asks `commercial-reservation` through its internal routes for: the financial
+decisions past their 24 running hours and asks for the default 100 % refund of each (`.../financial-decisions?due=true`, `POST .../default`); the refunds
+past their 5 business days and asks for the overdue mark of each (`.../refund-authorizations?due=true`, `POST .../overdue-mark`); and the proofs not reviewed
+in 24 hours (`.../payment-proofs?overdue=true`), for which it raises an alert and never reviews. The service decides every one at the call, including that it
+does nothing while a tenant is inactive (HU-COM-016, HU-COM-020), so the worker holds no rule, has no database and exposes only `/health`.
 
 ## How to start it
 
@@ -22,7 +24,10 @@ start and a bad variable stops the worker naming it.
 
 ## What is missing
 
-The job itself is the next piece. The tenants come from `TENANT_IDS` because no service route lists them for a `SERVICE` token.
+- The tenants come from `TENANT_IDS`: no service route lists them for a `SERVICE` token (`GET /tenants` of `identity-audit` is for the Platform Administrator).
+- The overdue-proof alert is a logging double until the notification piece exists. The proof list repeats a proof until it is reviewed, and each list is read
+  one page per run (`BATCH_SIZE`), so a page full of already-alerted proofs hides newer ones.
+- Tested against a stub of the contract, not against the running api.
 
 ## Branching
 
