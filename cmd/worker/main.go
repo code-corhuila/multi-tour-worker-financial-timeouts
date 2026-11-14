@@ -29,6 +29,13 @@ const (
 	shutdownTimeout   = 20 * time.Second
 )
 
+// newMux is the whole surface of the worker: /health and nothing else (Annex D).
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("GET /health", health.Handler())
+	return mux
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "financial-timeouts:", err)
@@ -55,9 +62,7 @@ func run() error {
 		return err
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("GET /health", health.Handler())
-	server := &http.Server{Addr: cfg.HealthAddr, Handler: mux, ReadHeaderTimeout: readHeaderTimeout,
+	server := &http.Server{Addr: cfg.HealthAddr, Handler: newMux(), ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout: writeTimeout, IdleTimeout: idleTimeout}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
