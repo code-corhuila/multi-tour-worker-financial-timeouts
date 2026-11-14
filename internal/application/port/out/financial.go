@@ -19,8 +19,9 @@ type Financial interface {
 	ListDueRefunds(ctx context.Context, tenantID string, limit int) ([]string, error)
 	// MarkOverdue asks for the overdue mark of a refund. It reports false when the service refuses it (not due or executed).
 	MarkOverdue(ctx context.Context, tenantID, refundID string) (marked bool, err error)
-	// ListOverdueProofs reads the first limit proofs that were not reviewed within 24 hours. The job never reviews them.
-	ListOverdueProofs(ctx context.Context, tenantID string, limit int) ([]Proof, error)
+	// ListOverdueProofs reads one page of the proofs that were not reviewed within 24 hours. The list repeats a proof until it is
+	// reviewed, so the job walks the pages. The job never reviews them.
+	ListOverdueProofs(ctx context.Context, tenantID string, page, limit int) ([]Proof, error)
 }
 
 // Alerts raises the alert of a proof not reviewed in time. Until the notification piece exists its adapter only writes a line

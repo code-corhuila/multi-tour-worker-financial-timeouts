@@ -19,7 +19,7 @@ const (
 	defaultPath   = tenantPath + "/financial-decisions/%s/default"
 	refundsPath   = tenantPath + "/refund-authorizations?due=true&page=1&limit=%d"
 	markPath      = tenantPath + "/refund-authorizations/%s/overdue-mark"
-	proofsPath    = tenantPath + "/payment-proofs?overdue=true&page=1&limit=%d"
+	proofsPath    = tenantPath + "/payment-proofs?overdue=true&page=%d&limit=%d"
 )
 
 var uuid = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -50,9 +50,12 @@ func (f *Financial) ListDueRefunds(ctx context.Context, tenantID string, limit i
 	return f.ids(ctx, tenantID, limit, refundsPath, func(i idItem) string { return i.RefundID })
 }
 
-// ListOverdueProofs reads the first page of GET .../payment-proofs?overdue=true.
-func (f *Financial) ListOverdueProofs(ctx context.Context, tenantID string, limit int) ([]out.Proof, error) {
-	ids, err := f.ids(ctx, tenantID, limit, proofsPath, func(i idItem) string { return i.PaymentID })
+// ListOverdueProofs reads one page of GET .../payment-proofs?overdue=true.
+func (f *Financial) ListOverdueProofs(ctx context.Context, tenantID string, page, limit int) ([]out.Proof, error) {
+	if page < 1 {
+		return nil, errors.New("a positive page is required")
+	}
+	ids, err := f.idsAt(ctx, tenantID, limit, fmt.Sprintf(proofsPath, tenantID, page, limit), func(i idItem) string { return i.PaymentID })
 	proofs := make([]out.Proof, 0, len(ids))
 	for _, id := range ids {
 		proofs = append(proofs, out.Proof{PaymentID: id})
@@ -61,10 +64,14 @@ func (f *Financial) ListOverdueProofs(ctx context.Context, tenantID string, limi
 }
 
 func (f *Financial) ids(ctx context.Context, tenantID string, limit int, path string, pick func(idItem) string) ([]string, error) {
+	return f.idsAt(ctx, tenantID, limit, fmt.Sprintf(path, tenantID, limit), pick)
+}
+
+func (f *Financial) idsAt(ctx context.Context, tenantID string, limit int, url string, pick func(idItem) string) ([]string, error) {
 	if !uuid.MatchString(tenantID) || limit < 1 {
 		return nil, errors.New("a tenant uuid and a positive limit are required")
 	}
-	got, err := httpclient.List[idItem](ctx, f.client, fmt.Sprintf(path, tenantID, limit))
+	got, err := httpclient.List[idItem](ctx, f.client, url)
 	if err != nil {
 		return nil, fmt.Errorf("list: %w", err)
 	}

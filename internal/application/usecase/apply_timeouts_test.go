@@ -61,9 +61,11 @@ func (f *fake) MarkOverdue(_ context.Context, tenant, id string) (bool, error) {
 	return !f.notDue[id], f.failOn[id]
 }
 
-func (f *fake) ListOverdueProofs(_ context.Context, tenant string, limit int) ([]out.Proof, error) {
+func (f *fake) ListOverdueProofs(_ context.Context, tenant string, page, limit int) ([]out.Proof, error) {
 	f.record("list-proofs "+tenant, limit)
-	return f.proofs[tenant], nil
+	all := f.proofs[tenant]
+	from := min((page-1)*limit, len(all))
+	return all[from:min(from+limit, len(all))], nil
 }
 
 type alerts struct {

@@ -119,7 +119,7 @@ func TestRefunds_are_listed_due_and_marked_overdue(t *testing.T) {
 func TestProofs_are_listed_overdue_and_only_read(t *testing.T) {
 	a, s := adapter(t, write(200, `{"data":[{"paymentId":"`+payment+`","validationStatus":"IN_VALIDATION","reviewOverdue":true}],`+meta+`,"overdueCount":1}`))
 
-	got, err := a.ListOverdueProofs(run(), tenant, 20)
+	got, err := a.ListOverdueProofs(run(), tenant, 1, 20)
 
 	if err != nil || len(got) != 1 || got[0].PaymentID != payment {
 		t.Fatalf("got %+v, %v", got, err)
@@ -181,5 +181,20 @@ func TestLists_a_body_that_is_not_the_contract_is_an_error(t *testing.T) {
 
 	if err == nil || strings.Contains(err.Error(), "nope") {
 		t.Errorf("error = %v, want a refusal that does not echo the body", err)
+	}
+}
+
+// The proofs list is read page by page, because it repeats a proof until it is reviewed.
+func TestProofs_the_page_asked_is_the_one_sent_and_a_page_below_one_is_refused(t *testing.T) {
+	a, s := adapter(t, write(200, `{"data":[],`+meta+`,"overdueCount":0}`))
+
+	if _, err := a.ListOverdueProofs(run(), tenant, 2, 20); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if r := s.seen[0]; r.query != "overdue=true&page=2&limit=20" {
+		t.Errorf("query = %q", r.query)
+	}
+	if _, err := a.ListOverdueProofs(run(), tenant, 0, 20); err == nil {
+		t.Error("page 0 must be refused")
 	}
 }
