@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	workerruntime "github.com/code-corhuila/multi-tour-worker-runtime"
@@ -93,18 +94,49 @@ func (j *ApplyTimeouts) marks(ctx context.Context, tenant string, limit int) (in
 	})
 }
 
-func (j *ApplyTimeouts) proofs(ctx context.Context, tenant string, limit int) (int, int) {
-	proofs, err := j.financial.ListOverdueProofs(ctx, tenant, limit)
-	if err != nil {
-		return j.listFailed(ctx, "proofs", tenant, err)
-	}
-	var fresh []out.Proof
-	for _, p := range proofs {
-		if !j.wasAlerted(tenant, p) {
-			fresh = append(fresh, p)
+// maxProofPages bounds the pages one run walks of the overdue proofs, so a service that ignores the page cannot hold the run.
+const maxProofPages = 50
+
+// proofs walks the pages of the overdue list: it repeats a proof until it is reviewed, so the first page alone would hide the
+// new ones once it is full of proofs already alerted. Each unalerted proof is alerted; when the walk reaches the last page the
+// memory keeps only what is still listed, so it never outgrows the overdue proofs.
+func (j *ApplyTimeouts) proofs(ctx context.Context, tenant string, limit int) (processed, failed int) {
+	listed := map[string]bool{}
+	for page := 1; page <= maxProofPages; page++ {
+		proofs, err := j.financial.ListOverdueProofs(ctx, tenant, page, limit)
+		if err != nil {
+			done, bad := j.listFailed(ctx, "proofs", tenant, err)
+			return processed + done, failed + bad
+		}
+		var fresh []out.Proof
+		for _, p := range proofs {
+			listed[p.PaymentID] = true
+			if !j.wasAlerted(tenant, p) {
+				fresh = append(fresh, p)
+			}
+		}
+		done, bad := workerruntime.Each(ctx, j.log, fresh, func(ctx context.Context, p out.Proof) error { return j.alert(ctx, tenant, p) })
+		processed, failed = processed+done, failed+bad
+		if len(proofs) < limit || ctx.Err() != nil {
+			if len(proofs) < limit {
+				j.forgetUnlisted(tenant, listed)
+			}
+			return processed, failed
 		}
 	}
-	return workerruntime.Each(ctx, j.log, fresh, func(ctx context.Context, p out.Proof) error { return j.alert(ctx, tenant, p) })
+	return processed, failed
+}
+
+// forgetUnlisted drops the proofs of the tenant that left the list because they were reviewed.
+func (j *ApplyTimeouts) forgetUnlisted(tenant string, listed map[string]bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	prefix := tenant + "/"
+	for key := range j.alerted {
+		if strings.HasPrefix(key, prefix) && !listed[strings.TrimPrefix(key, prefix)] {
+			delete(j.alerted, key)
+		}
+	}
 }
 
 // The list repeats a proof until it is reviewed, so each one is alerted once while the worker lives; a failed alert is not
